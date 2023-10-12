@@ -1,15 +1,16 @@
-
+use core::marker::PhantomData;
 use core::ops::Index;
 
-pub struct Deque<T: Copy + Default, const SIZE: usize> {
+pub struct Deque<'a, T: Copy + Default, const SIZE: usize> where T: 'a {
     data: [T; SIZE],
     head: usize,
-    tail: usize,
+    length: usize,
+    phantom: PhantomData<&'a T>,
 }
 
-impl<T: Copy + Default, const SIZE: usize> Deque<T, SIZE> {
+impl<'a, T: Copy + Default, const SIZE: usize> Deque<'a, T, SIZE> {
     pub fn new() -> Self {
-        Self{data: [T::default(); SIZE], head:0, tail:0}
+        Self{data: [T::default(); SIZE], head:0, length:0, phantom: PhantomData}
     }
     pub fn push(&mut self, line: T) {
         if !self.is_full() {
@@ -19,27 +20,27 @@ impl<T: Copy + Default, const SIZE: usize> Deque<T, SIZE> {
             } else {
                 self.head = 0;
             }
+            self.length += 1;
         }
     }
-    pub fn pop(&mut self) -> Option<T> {
-        let old_tail = self.tail;
-        if self.len() > 0 {
-            if self.tail < SIZE-1 {
-                self.tail += 1;
-            } else {
-                self.tail = 0;
-            }
-            Some(self.data[old_tail])
+    fn tail(&self) -> usize {
+        if self.length > self.head {
+            SIZE + self.head - self.length
         } else {
-            None
+            self.head - self.length
+        }
+    }
+    pub fn pop(&mut self) -> T {
+        if self.length > 0 {
+            let old_tail = self.tail();
+            self.length -= 1;
+            self.data[old_tail]
+        } else {
+            panic!("Popping from an empty buffer")
         }
     }
     pub fn len(&self) -> usize {
-        if self.tail > self.head {
-            SIZE - self.tail + self.head
-        } else {
-            self.head - self.tail
-        }
+        self.length
     }
     pub fn load(&mut self, data: &[T]) {
         for d in data {
@@ -47,21 +48,24 @@ impl<T: Copy + Default, const SIZE: usize> Deque<T, SIZE> {
         }
     }
     pub fn is_empty(&self) -> bool {
-        self.head == self.tail
+        self.length == 0usize
     }
-    pub fn is_full(&self) -> bool {
-        self.len() == SIZE-1
+    pub fn is_full(&self) -> bool { self.length == SIZE }
+    pub fn iter(&self) -> DequeIterator<T, SIZE> {DequeIterator{deque: self, pos: 0}}
+    pub fn clear(&mut self) {
+        self.head = 0;
+        self.length = 0;
     }
 }
 
-impl<T: Copy + Default, const SIZE: usize> Index<usize> for Deque<T, SIZE> {
+impl<'a, T: Copy + Default, const SIZE: usize> Index<usize> for Deque<'a, T, SIZE> {
     type Output = T;
     fn index(&self, i: usize) -> &T {
-        if i > self.len() {
+        if i >= self.len() {
             panic!("Out of bounds");
         }
         // The index is counted from the tail, so [0] returns the oldest value.
-        let mut offset = self.tail + i;
+        let mut offset = self.tail() + i;
         if offset > SIZE {
             offset -= SIZE;
         }
@@ -69,6 +73,24 @@ impl<T: Copy + Default, const SIZE: usize> Index<usize> for Deque<T, SIZE> {
     }
 }
 
+
+pub struct DequeIterator<'a, T: Copy + Default, const SIZE: usize> {
+    deque: &'a Deque<'a, T, SIZE>,
+    pos: usize
+}
+
+impl<'a, T: Copy + Default, const SIZE: usize> Iterator for DequeIterator<'a, T, SIZE> {
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos < self.deque.len() {
+            let value = self.deque[self.pos];
+            self.pos += 1;
+            Some(value)
+        } else {
+            None
+        }
+    }
+}
 
 
 #[cfg(test)]
@@ -86,24 +108,24 @@ mod tests {
             assert!(!d.is_empty());
             assert!(!d.is_full());
             assert_eq!(d.len(), 1);
-            _ = d.pop();
+            d.pop();
         }
     }
 
     #[test]
     fn test_is_full() {
         let mut d = Deque::<u8, 10>::new();
-        for i in 0u8..10u8 {
+        for i in 0u8..=10u8 {
             assert_eq!(d.len(), i as usize);
             d.push(i);
         }
 
         for i in 0u8..100u8 {
-            assert_eq!(d.len(), 9);
+            assert_eq!(d.len(), 10);
             assert!(d.is_full());
             assert!(!d.is_empty());
-            _ = d.pop();
-            assert_eq!(d.len(), 8);
+            d.pop();
+            assert_eq!(d.len(), 9);
             assert!(!d.is_full());
             assert!(!d.is_empty());
             d.push(i);
@@ -113,15 +135,14 @@ mod tests {
     #[test]
     fn test_fill_and_empty() {
         let mut d = Deque::<u8, 10>::new();
-        assert_eq!(d.pop(), None);
-        for j in 0..100 {
-            for i in 0u8..9u8 {
+        for _j in 0..100 {
+            for i in 0u8..=9u8 {
                 assert_eq!(d.len(), i as usize);
                 d.push(i);
             }
             assert!(d.is_full());
-            for i in 0u8..9u8 {
-                assert_eq!(d.pop(), Some(i));
+            for i in 0u8..=9u8 {
+                assert_eq!(d.pop(), i);
             }
             assert!(d.is_empty());
         }
@@ -129,12 +150,36 @@ mod tests {
 
     #[test]
     fn test_load() {
-        let mut d = Deque::<u8, 11>::new();
+        let mut d = Deque::<u8, 10>::new();
         d.load(&[1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8]);
         assert_eq!(d.len(), 10);
         assert!(d.is_full());
         for i in 1..=10 {
-            assert_eq!(d.pop(), Some(i));
+            assert_eq!(d.pop(), i);
+        }
+    }
+
+    #[test]
+    fn test_random_access() {
+        let mut d = Deque::<u8, 11>::new();
+        d.load(&[1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8]);
+        assert_eq!(d[0], 1u8);
+        assert_eq!(d[1], 2u8);
+        assert_eq!(d[9], 10u8);
+        d.pop();
+        assert_eq!(d[0], 2u8);
+        assert_eq!(d[8], 10u8);
+        d.push(11u8);
+        assert_eq!(d[0], 2u8);
+        assert_eq!(d[9], 11u8);
+    }
+
+    #[test]
+    fn test_iterator() {
+        let mut d = Deque::<u8, 11>::new();
+        d.load(&[1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8]);
+        for (i, v) in d.iter().enumerate() {
+            assert_eq!((i+1) as u8, v);
         }
     }
 }
