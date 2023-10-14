@@ -1,16 +1,17 @@
-use core::marker::PhantomData;
-use core::ops::Index;
 
-pub struct Deque<'a, T: Copy + Default, const SIZE: usize> where T: 'a {
+
+use core::ops::Index;
+use core::iter::ExactSizeIterator;
+
+pub struct Deque<T: Copy + Default, const SIZE: usize> {
     data: [T; SIZE],
     head: usize,
     length: usize,
-    phantom: PhantomData<&'a T>,
 }
 
-impl<'a, T: Copy + Default, const SIZE: usize> Deque<'a, T, SIZE> {
+impl<T: Copy + Default, const SIZE: usize> Deque<T, SIZE> {
     pub fn new() -> Self {
-        Self{data: [T::default(); SIZE], head:0, length:0, phantom: PhantomData}
+        Self{data: [T::default(); SIZE], head:0, length:0}
     }
     pub fn push(&mut self, line: T) {
         if !self.is_full() {
@@ -39,16 +40,11 @@ impl<'a, T: Copy + Default, const SIZE: usize> Deque<'a, T, SIZE> {
             panic!("Popping from an empty buffer")
         }
     }
-    pub fn len(&self) -> usize {
-        self.length
-    }
+    pub fn space(&self) -> usize { SIZE - self.length }
     pub fn load(&mut self, data: &[T]) {
         for d in data {
             self.push(*d);
         }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.length == 0usize
     }
     pub fn is_full(&self) -> bool { self.length == SIZE }
     pub fn iter(&self) -> DequeIterator<T, SIZE> {DequeIterator{deque: self, pos: 0}}
@@ -58,7 +54,7 @@ impl<'a, T: Copy + Default, const SIZE: usize> Deque<'a, T, SIZE> {
     }
 }
 
-impl<'a, T: Copy + Default, const SIZE: usize> Index<usize> for Deque<'a, T, SIZE> {
+impl<T: Copy + Default, const SIZE: usize> Index<usize> for Deque<T, SIZE> {
     type Output = T;
     fn index(&self, i: usize) -> &T {
         if i >= self.len() {
@@ -73,9 +69,26 @@ impl<'a, T: Copy + Default, const SIZE: usize> Index<usize> for Deque<'a, T, SIZ
     }
 }
 
+impl<T: Copy + Default, const SIZE: usize> Iterator for Deque<T, SIZE> {
+    type Item = T;
+    fn next(&mut self) -> Option<T> {
+        if self.length > 0 {
+            Some(self.pop())
+        } else {
+            None
+        }
+    }
+}
+
+impl<T: Copy + Default, const SIZE: usize> ExactSizeIterator for Deque<T, SIZE> {
+    fn len(&self) -> usize {
+        self.length
+    }
+}
+
 
 pub struct DequeIterator<'a, T: Copy + Default, const SIZE: usize> {
-    deque: &'a Deque<'a, T, SIZE>,
+    deque: &'a Deque<T, SIZE>,
     pos: usize
 }
 
@@ -101,11 +114,11 @@ mod tests {
     fn test_is_empty() {
         let mut d = Deque::<u8, 10>::new();
         for i in 0u8..100u8 {
-            assert!(d.is_empty());
+            assert_eq!(d.len(), 0);
             assert!(!d.is_full());
             assert_eq!(d.len(), 0);
             d.push(i);
-            assert!(!d.is_empty());
+            assert_eq!(d.len(), 0);
             assert!(!d.is_full());
             assert_eq!(d.len(), 1);
             d.pop();
@@ -123,11 +136,11 @@ mod tests {
         for i in 0u8..100u8 {
             assert_eq!(d.len(), 10);
             assert!(d.is_full());
-            assert!(!d.is_empty());
+            assert_eq!(d.len(), 0);
             d.pop();
             assert_eq!(d.len(), 9);
             assert!(!d.is_full());
-            assert!(!d.is_empty());
+            assert_eq!(d.len(), 0);
             d.push(i);
         }
     }
@@ -144,7 +157,7 @@ mod tests {
             for i in 0u8..=9u8 {
                 assert_eq!(d.pop(), i);
             }
-            assert!(d.is_empty());
+            assert_eq!(d.len(), 0);
         }
     }
 
