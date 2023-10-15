@@ -1,56 +1,51 @@
 
 
+use core::cell::UnsafeCell;
 use core::ops::Index;
 use core::iter::ExactSizeIterator;
 
+use core::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
 pub struct Deque<T: Copy + Default, const SIZE: usize> {
-    data: [T; SIZE],
-    head: usize,
-    length: usize,
+    data: UnsafeCell<[T; SIZE]>,
+    head: AtomicUsize,
+    tail: AtomicUsize,
 }
 
 impl<T: Copy + Default, const SIZE: usize> Deque<T, SIZE> {
     pub fn new() -> Self {
-        Self{data: [T::default(); SIZE], head:0, length:0}
+        Self{data: UnsafeCell::new([T::default(); SIZE]),
+            head:AtomicUsize::new(0),
+            tail:AtomicUsize::new(0)
+        }
     }
     pub fn push(&mut self, line: T) {
         if !self.is_full() {
-            self.data[self.head] = line;
-            if self.head < SIZE-1 {
-                self.head += 1;
-            } else {
-                self.head = 0;
-            }
-            self.length += 1;
-        }
-    }
-    fn tail(&self) -> usize {
-        if self.length > self.head {
-            SIZE + self.head - self.length
-        } else {
-            self.head - self.length
+            let head = self.head.load(Relaxed);
+            unsafe { (*self.data.get())[head] = line; }
+            self.head.store(if head < SIZE-1 {head+1} else {head+1-SIZE}, Relaxed)
         }
     }
     pub fn pop(&mut self) -> T {
-        if self.length > 0 {
-            let old_tail = self.tail();
-            self.length -= 1;
-            self.data[old_tail]
+        if self.len() > 0 {
+            let old_tail = self.tail.fetch_update(Relaxed, Relaxed, |x| Some(if x < SIZE-1 {x+1} else {x+1-SIZE})).unwrap();
+            unsafe { (*self.data.get())[old_tail] }
         } else {
             panic!("Popping from an empty buffer")
         }
     }
-    pub fn space(&self) -> usize { SIZE - self.length }
+    pub fn space(&self) -> usize { SIZE - self.len() }
     pub fn load(&mut self, data: &[T]) {
         for d in data {
             self.push(*d);
         }
     }
-    pub fn is_full(&self) -> bool { self.length == SIZE }
-    pub fn iter(&self) -> DequeIterator<T, SIZE> {DequeIterator{deque: self, pos: 0}}
+    pub fn is_full(&self) -> bool { self.len() >= SIZE-1 }
+    pub fn is_empty(&self) -> bool { self.head.load(Relaxed) == self.tail.load(Relaxed) }
+    pub fn iter(&self) -> DequeIterator<T, SIZE> { DequeIterator{deque: self, pos: 0} }
     pub fn clear(&mut self) {
-        self.head = 0;
-        self.length = 0;
+        self.head.store(0, Relaxed);
+        self.tail.store(0, Relaxed);
     }
 }
 
@@ -61,18 +56,18 @@ impl<T: Copy + Default, const SIZE: usize> Index<usize> for Deque<T, SIZE> {
             panic!("Out of bounds");
         }
         // The index is counted from the tail, so [0] returns the oldest value.
-        let mut offset = self.tail() + i;
+        let mut offset = self.tail.load(Relaxed) + i;
         if offset > SIZE {
             offset -= SIZE;
         }
-        &self.data[offset]
+        unsafe { &(*self.data.get())[offset] }
     }
 }
 
 impl<T: Copy + Default, const SIZE: usize> Iterator for Deque<T, SIZE> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
-        if self.length > 0 {
+        if self.len() > 0 {
             Some(self.pop())
         } else {
             None
@@ -82,7 +77,15 @@ impl<T: Copy + Default, const SIZE: usize> Iterator for Deque<T, SIZE> {
 
 impl<T: Copy + Default, const SIZE: usize> ExactSizeIterator for Deque<T, SIZE> {
     fn len(&self) -> usize {
-        self.length
+        /// Return the number of spaced in the buffer that are occupied.
+        /// UNRELIABLE! The actual number can change while this function is executing.
+        let head = self.head.load(Relaxed);
+        let tail = self.tail.load(Relaxed);
+        if head > tail {
+            head - tail
+        } else {
+            SIZE - tail + head
+        }
     }
 }
 
