@@ -69,7 +69,7 @@ pub mod RustIBus {
         match buffer[1] & 0xf0 {
             SET => (),
             TYPE | VALUE | DISCOVER => { if buffer[0] != 0x04 { return true; } },
-            _ => ()
+            _ => {return true;}
         };
 
         // Check the CRC
@@ -152,23 +152,49 @@ pub mod RustIBus {
 // }
 }
 
+
+mod deque;
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use deque::Deque;
+    //mod super::deque;
 
-    type Buffer = Deque::<u8, 64>;
+    use super::RustIBus::*;
+    use super::deque::Deque;
+
+    type Buffer = Deque::<64>;
 
 
     #[test]
     fn test_resync() {
         let mut buffer = Buffer::new();
+        // Test a wrong command code followed by a correct message
         buffer.load(&[0x04, 0x04, 0x81, 0x7a, 0xff]);
-        assert_eq!(popIBusMsg(&mut buffer), (Some(IBusMsg::DiscoveryRequest(0x01)), 4));
-        assert_eq!(buffer.len(), 0);
+        assert_eq!(popIBusMsg(&mut buffer), (None, 1));
+        // Test a message that is too short
+        buffer.clear();
         buffer.load(&[0x00, 0x04, 0x81, 0x7a, 0xff]);
-        assert_eq!(popIBusMsg(&mut buffer), (Some(IBusMsg::DiscoveryRequest(0x01)), 4));
-        assert_eq!(buffer.len(), 0);
+        assert_eq!(popIBusMsg(&mut buffer), (None, 1));
+        // Test a message that is too long
+        buffer.clear();
+        buffer.load(&[0x21, 0x04, 0x81, 0x7a, 0xff]);
+        assert_eq!(popIBusMsg(&mut buffer), (None, 1));
+        // Test a message that is not complete
+        buffer.clear();
+        buffer.load(&[0x04, 0x81, 0x7a]);
+        assert_eq!(popIBusMsg(&mut buffer), (None, 0));
+        // Test a message with a wrong CRC check
+        buffer.clear();
+        buffer.load(&[0x04, 0x81, 0x7b, 0xff]);
+        assert_eq!(popIBusMsg(&mut buffer), (None, 1));
+        // Test a message with a wrong command code
+        buffer.clear();
+        buffer.load(&[0x04, 0x11, 0xea, 0xff]);
+        assert_eq!(popIBusMsg(&mut buffer), (None, 1));
+        // Test a good message can still be read
+        buffer.clear();
+        buffer.load(&[0x04, 0x81, 0x7a, 0xff]);
+        assert_eq!(popIBusMsg(&mut buffer), (Some(IBusMsg::DiscoveryRequest(0x1)), 4));
     }
 
     #[test]
@@ -181,7 +207,6 @@ mod tests {
         assert_eq!(popIBusMsg(&mut buffer), (Some(IBusMsg::SetMsg([
             0x5DB, 0x5Dc, 0x554, 0x5DC, 0x3E8, 0x7D0, 0x5D2,
             0x3E8, 0x5DC, 0x5DC, 0x5DC, 0x5DC, 0x5DC, 0x5DC])), 0x20));
-        assert_eq!(buffer.len(), 0);
     }
 
     #[test]
@@ -189,15 +214,13 @@ mod tests {
         let mut buffer = Buffer::new();
         buffer.load(&[0x04, 0x81, 0x7a, 0xff]);
         assert_eq!(popIBusMsg(&mut buffer), (Some(IBusMsg::DiscoveryRequest(0x01)), 4));
-        assert_eq!(buffer.len(), 0);
-
+        buffer.clear();
         buffer.load(&[0x04, 0x92, 0x69, 0xff]);
         assert_eq!(popIBusMsg(&mut buffer), (Some(IBusMsg::TypeRequest(0x02)), 4));
-        assert_eq!(buffer.len(), 0);
-
+        buffer.clear();
         buffer.load(&[0x04, 0xa3, 0x58, 0xff]);
         assert_eq!(popIBusMsg(&mut buffer), (Some(IBusMsg::ValueRequest(0x03)), 4));
-        assert_eq!(buffer.len(), 0);
+        buffer.clear();
     }
 
     // #[test]

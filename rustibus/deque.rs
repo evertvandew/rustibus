@@ -1,5 +1,6 @@
 
 
+
 use core::ops::Index;
 use core::iter::ExactSizeIterator;
 
@@ -18,21 +19,22 @@ pub struct Writer<const SIZE: usize> {
 
 impl<const SIZE: usize> Deque<SIZE> {
     pub const fn new() -> Self {
-        Self{data: [0u8; SIZE],
-            head:  AtomicUsize::new(0),
-            tail:  AtomicUsize::new(0)
+        Self {
+            data: [0u8; SIZE],
+            head: AtomicUsize::new(0),
+            tail: AtomicUsize::new(0)
         }
     }
     pub fn push(&mut self, line: u8) {
         if !self.is_full() {
             let head = self.head.load(Relaxed);
             self.data[head] = line;
-            self.head.store(if head < SIZE-1 {head+1} else {head+1-SIZE}, Relaxed)
+            self.head.store(if head < SIZE - 1 { head + 1 } else { head + 1 - SIZE }, Relaxed)
         }
     }
     pub fn pop(&mut self) -> u8 {
         if self.len() > 0 {
-            let old_tail = self.tail.fetch_update(Relaxed, Relaxed, |x| Some(if x < SIZE-1 {x+1} else {x+1-SIZE})).unwrap();
+            let old_tail = self.tail.fetch_update(Relaxed, Relaxed, |x| Some(if x < SIZE - 1 { x + 1 } else { x + 1 - SIZE })).unwrap();
             unsafe { self.data[old_tail] }
         } else {
             panic!("Popping from an empty buffer")
@@ -44,15 +46,15 @@ impl<const SIZE: usize> Deque<SIZE> {
             self.push(*d);
         }
     }
-    pub fn is_full(&self) -> bool { self.len() >= SIZE-1 }
+    pub fn is_full(&self) -> bool { self.len() >= SIZE - 1 }
     pub fn is_empty(&self) -> bool { self.head.load(Relaxed) == self.tail.load(Relaxed) }
-    pub fn iter(&self) -> DequeIterator<SIZE> { DequeIterator{deque: self, pos: 0} }
+    pub fn iter(&self) -> DequeIterator<SIZE> { DequeIterator { deque: self, pos: 0 } }
     pub fn clear(&mut self) {
         self.head.store(0, Relaxed);
         self.tail.store(0, Relaxed);
     }
-    pub fn mk_writer(&mut self) -> Writer<SIZE>{
-        Writer{buffer: &mut *self}
+    pub fn mk_writer(&mut self) -> Writer<SIZE> {
+        Writer { buffer: &mut *self }
     }
 }
 
@@ -116,7 +118,6 @@ impl<'a, const SIZE: usize> Iterator for DequeIterator<'a, SIZE> {
 }
 
 
-
 impl<const SIZE: usize> Writer<SIZE> {
     pub fn push(&mut self, ch: u8) {
         unsafe { (*self.buffer).push(ch) }
@@ -124,11 +125,12 @@ impl<const SIZE: usize> Writer<SIZE> {
 }
 
 unsafe impl<const SIZE: usize> Send for Deque<SIZE> {}
+
 unsafe impl<const SIZE: usize> Sync for Deque<SIZE> {}
 
 unsafe impl<const SIZE: usize> Send for Writer<SIZE> {}
-unsafe impl<const SIZE: usize> Sync for Writer<SIZE> {}
 
+unsafe impl<const SIZE: usize> Sync for Writer<SIZE> {}
 
 #[cfg(test)]
 mod tests {
